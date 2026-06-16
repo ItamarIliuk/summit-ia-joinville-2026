@@ -70,7 +70,7 @@ summit-ia-joinville-2026/
 ## Como Usar
 
 ```bash
-git clone https://github.com/SEU_USUARIO/summit-ia-joinville-2026.git
+git clone https://github.com/ItamarIliuk/summit-ia-joinville-2026.git
 cd summit-ia-joinville-2026
 ```
 
