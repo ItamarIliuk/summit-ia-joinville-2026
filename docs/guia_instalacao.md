@@ -31,6 +31,8 @@ Ambas as stacks coexistem na mesma máquina usando **ambientes virtuais isolados
 - Mínimo 32 GB de RAM
 - 100 GB de espaço livre em disco (para ambas as stacks)
 
+> **Atenção — GPUs de notebook (RTX 4050/4060 Laptop etc.):** Essas GPUs têm tipicamente 6–8 GB de VRAM, abaixo do mínimo recomendado. O Isaac Sim pode carregar, mas o renderer RTX pode falhar com `Segmentation fault` ao inicializar o scenedb. Use sempre o modo headless e defina `renderer: RayTracedLighting` para reduzir uso de VRAM.
+
 ### Driver NVIDIA
 
 O driver NVIDIA deve ser **versão 560+** (recomendado: **580.65.06 ou superior**). Um único driver atende ambas as stacks.
@@ -64,7 +66,12 @@ conda --version
 
 ```bash
 sudo apt update
-sudo apt install -y cmake build-essential git curl
+sudo apt install -y cmake build-essential git curl vulkan-tools
+```
+
+Após instalar, verifique se o Vulkan enxerga a GPU:
+```bash
+vulkaninfo 2>&1 | grep -E 'GPU|deviceName|driverVersion'
 ```
 
 ---
@@ -80,13 +87,24 @@ conda create -n isaaclab_prod python=3.11 -y
 conda activate isaaclab_prod
 ```
 
-### Passo 2: Instalar Isaac Sim + Isaac Lab
+### Passo 2: Instalar PyTorch com CUDA
 
-Um único comando instala **ambos** — o Isaac Sim é puxado automaticamente como dependência:
+Instale o PyTorch **antes** do Isaac Lab. Isso evita que o pip tente baixar o torch (arquivo de vários GB) durante a etapa seguinte, o que pode causar `BrokenPipeError` em conexões instáveis:
+
+```bash
+pip install torch==2.7.0 torchvision==0.22.0 \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    --timeout 300 --retries 5
+```
+
+### Passo 3: Instalar Isaac Sim + Isaac Lab
+
+Um único comando instala **ambos** — o Isaac Sim é puxado automaticamente como dependência. Como o PyTorch já está instalado, o pip não precisará baixá-lo novamente:
 
 ```bash
 pip install "isaaclab[isaacsim,all]==2.3.2.post1" \
-    --extra-index-url https://pypi.nvidia.com
+    --extra-index-url https://pypi.nvidia.com \
+    --timeout 300 --retries 5
 ```
 
 Os extras significam:
@@ -94,33 +112,37 @@ Os extras significam:
 - `isaacsim` → instala o Isaac Sim via pip
 - `all` → instala todos os sub-pacotes do Isaac Lab (assets, rl, tasks, sensors, etc.)
 
-### Passo 3: Instalar PyTorch com CUDA
-
-O PyTorch precisa ser instalado separadamente para garantir a versão correta com suporte a CUDA:
-
-```bash
-pip install torch==2.7.0 torchvision==0.22.0 \
-    --index-url https://download.pytorch.org/whl/cu128
-```
-
 ### Passo 4: Verificar a instalação
 
 ```bash
 conda activate isaaclab_prod
 
-# Teste rápido (headless — sem janela gráfica)
-python -c "
-from isaacsim import SimulationApp
-app = SimulationApp({'headless': True})
-print('Isaac Sim OK!')
-app.close()
-"
+# Verificar versão instalada
+# Nota: o wheel não expõe __version__; use pip show para confirmar
+pip show isaaclab | grep Version
 
-# Teste com janela gráfica (deve abrir viewport preta)
-python -m isaaclab.tutorials.00_sim.create_empty
+# Teste de simulação headless (sem janela gráfica)
+# IMPORTANTE: isaaclab.sim e outros módulos do Isaac Sim só podem ser importados
+# APÓS a instanciação de SimulationApp (requisito do framework Carbonite).
+# Nunca use `import isaaclab.sim` diretamente sem antes criar o SimulationApp.
+# CUDA_VISIBLE_DEVICES=0 garante uso da GPU NVIDIA em máquinas com Intel + NVIDIA
+CUDA_VISIBLE_DEVICES=0 python -c '
+from isaacsim import SimulationApp
+app = SimulationApp({"headless": True, "renderer": "RayTracedLighting"})
+import isaaclab
+import isaaclab.sim
+print("Isaac Sim + Isaac Lab OK -", isaaclab.__file__)
+app.close()
+'
+
+# Para rodar tutoriais gráficos, é necessário clonar o repositório:
+# git clone -b v2.3.2 https://github.com/isaac-sim/IsaacLab.git ~/IsaacLab
+# cd ~/IsaacLab && python scripts/tutorials/00_sim/create_empty.py
 ```
 
-Se a janela abrir e não houver erros, a instalação está completa.
+> **Nota:** O comando `python -m isaaclab.tutorials.*` **não funciona** na instalação via pip — as tutoriais são scripts avulsos, não módulos Python. Para executá-las sem clonar o repo, localize os scripts com: `python -c 'import isaaclab, os; print(os.path.dirname(isaaclab.__file__))'`
+
+Se o import não gerar erros, a instalação está completa.
 
 ---
 
@@ -137,14 +159,32 @@ conda create -n isaaclab_beta python=3.12 -y
 conda activate isaaclab_beta
 ```
 
-### Passo 2 — Opção A: Instalar tudo via pip
+### Passo 2: Instalar PyTorch com CUDA
+
+Instale o PyTorch **antes** do Isaac Lab. Isso evita que o pip tente baixar o torch (arquivo de vários GB) durante a etapa seguinte, o que pode causar `BrokenPipeError` em conexões instáveis:
+
+```bash
+pip install torch==2.7.0 torchvision==0.22.0 \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    --timeout 300 --retries 5
+```
+
+### Passo 3 — Opção A: Instalar tudo via pip
+
+Como o PyTorch já está instalado, o pip não precisará baixá-lo novamente:
 
 ```bash
 pip install "isaaclab[isaacsim,all]" \
-    --extra-index-url https://pypi.nvidia.com
+    --extra-index-url https://pypi.nvidia.com \
+    --timeout 300 --retries 5
 ```
 
-### Passo 2 — Opção B: Instalar do source (recomendado para beta)
+Os extras significam:
+
+- `isaacsim` → instala o Isaac Sim via pip
+- `all` → instala todos os sub-pacotes do Isaac Lab (assets, rl, tasks, sensors, etc.)
+
+### Passo 3 — Opção B: Instalar do source (recomendado para beta)
 
 Essa opção dá mais controle e facilita atualizar com `git pull`:
 
@@ -161,30 +201,35 @@ cd ~/IsaacLab3
 ./isaaclab.sh --install all
 ```
 
-### Passo 3: Instalar PyTorch com CUDA
-
-```bash
-pip install torch==2.7.0 torchvision==0.22.0 \
-    --index-url https://download.pytorch.org/whl/cu128
-```
-
 ### Passo 4: Verificar a instalação
 
 ```bash
 conda activate isaaclab_beta
 
+# Verificar versão instalada
+pip show isaaclab | grep Version
+
+# Teste de simulação headless (sem janela gráfica)
+# IMPORTANTE: isaaclab.sim e outros módulos do Isaac Sim só podem ser importados
+# APÓS a instanciação de SimulationApp (requisito do framework Carbonite).
+# CUDA_VISIBLE_DEVICES=0 garante uso da GPU NVIDIA em máquinas com Intel + NVIDIA
+
 # Se instalou via pip (Opção A)
-python -c "
+CUDA_VISIBLE_DEVICES=0 python -c '
 from isaacsim import SimulationApp
-app = SimulationApp({'headless': True})
-print('Isaac Sim 6.0 OK!')
+app = SimulationApp({"headless": True, "renderer": "RayTracedLighting"})
+import isaaclab
+import isaaclab.sim
+print("Isaac Sim 6.0 + Isaac Lab OK -", isaaclab.__file__)
 app.close()
-"
+'
 
 # Se instalou do source (Opção B)
 cd ~/IsaacLab3
-python scripts/tutorials/00_sim/create_empty.py
+CUDA_VISIBLE_DEVICES=0 python scripts/tutorials/00_sim/create_empty.py
 ```
+
+Se o import não gerar erros, a instalação está completa.
 
 ---
 
@@ -236,6 +281,45 @@ Apenas **um ambiente deve estar ativo por vez**. Não rode as duas stacks simult
 ---
 
 ## Resolução de Problemas
+
+### Falha de segmentação em `librtx.scenedb.plugin.so`
+
+O renderer RTX (`carbOnPluginStartup`) travou ao inicializar. Causas comuns:
+
+**1. Driver muito novo — incompatibilidade de ABI** (causa mais freqüente)
+
+O Isaac Sim 5.1 foi validado com drivers até a série **575**. Driver 590+ pode causar crash determinístico no `librtx.scenedb`. Verifique e, se necessário, faça downgrade:
+```bash
+nvidia-smi  # se mostrar 590+ e o crash for consistente, faça downgrade
+sudo apt install nvidia-driver-570
+sudo reboot
+```
+
+**2. Máquina com duas GPUs (NVIDIA + Intel)** — Isaac Sim pode tentar inicializar na Intel. Force a GPU NVIDIA:
+```bash
+CUDA_VISIBLE_DEVICES=0 python -c '
+from isaacsim import SimulationApp
+app = SimulationApp({"headless": True, "renderer": "RayTracedLighting"})
+print("OK")
+app.close()
+'
+```
+
+**3. Sem display** — o Isaac Sim inicializa Vulkan mesmo em modo headless:
+```bash
+echo $DISPLAY          # deve retornar algo como :1 ou :0
+sudo apt install vulkan-tools
+vulkaninfo 2>&1 | grep -E 'GPU|deviceName'  # GPU NVIDIA deve aparecer
+```
+
+**4. Se o crash persistir**, verifique se a `libnvidia-egl-wayland` está instalada:
+```bash
+sudo apt install libnvidia-egl-wayland1
+```
+
+> **Nota sobre aspas no bash:** Ao usar `python -c` no terminal, prefira aspas simples no exterior: `python -c '...'`. Aspas duplas com `!` dentro causam `bash: !: event not found`.
+
+---
 
 ### Erro: `ModuleNotFoundError: No module named 'isaacsim'`
 
